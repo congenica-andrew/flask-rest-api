@@ -106,22 +106,26 @@ class Blueprint(
         endpoint_doc = self._docs.setdefault(endpoint, OrderedDict())
 
         def store_method_docs(method, function):
+            """Add auto and manual doc to table for later registration"""
             # Get summary/description from docstring
             docstring = function.__doc__
             doc = load_info_from_docstring(docstring) if docstring else {}
-            # Update doc with description from @doc decorator
+            # Update doc with auto documentation from decorators
             doc.update(getattr(function, '_apidoc', {}))
-            # Add function doc to table for later registration
+            manual_doc = getattr(function, '_api_manual_doc', {})
             method_l = method.lower()
             # Check another doc was not already registed for endpoint/method
-            if method_l in endpoint_doc and endpoint_doc[method_l] is not doc:
+            if (
+                    method_l in endpoint_doc and
+                    endpoint_doc[method_l] != (doc, manual_doc)
+            ):
                 # If multiple routes point to the same endpoint, the doc may
                 # be already registered.
                 # Only trigger exception if a different doc is passed.
                 raise EndpointMethodDocAlreadyRegistedError(
                     "Another doc is already registered for endpoint '{}' "
                     "method {}".format(endpoint, method_l.upper()))
-            endpoint_doc[method_l] = doc
+            endpoint_doc[method_l] = doc, manual_doc
 
         # MethodView (class)
         if isinstance(obj, MethodViewType):
@@ -155,11 +159,13 @@ class Blueprint(
             # Prepend Blueprint name to endpoint
             endpoint = '.'.join((self.name, endpoint))
 
-            # Tag all operations with Blueprint name
             # Format operations documentation in OpenAPI structure
-            for operation in doc.values():
-                operation['tags'] = [self.name]
-                self._prepare_doc(operation, spec.openapi_version)
+            # Tag all operations with Blueprint name
+            # Merge manual doc
+            for key, (auto_doc, manual_doc) in doc.items():
+                self._prepare_doc(auto_doc, spec.openapi_version)
+                auto_doc['tags'] = [self.name]
+                doc[key] = deepupdate(auto_doc, manual_doc)
 
             # TODO: Do we support multiple rules per endpoint?
             # https://github.com/marshmallow-code/apispec/issues/181
@@ -234,6 +240,7 @@ class Blueprint(
                     ...
         """
         def decorator(func):
-            func._apidoc = deepupdate(getattr(func, '_apidoc', {}), kwargs)
+            func._api_manual_doc = deepupdate(
+                getattr(func, '_api_manual_doc', {}), kwargs)
             return func
         return decorator
