@@ -10,6 +10,8 @@ import werkzeug.routing
 from apispec import BasePlugin
 from apispec.exceptions import PluginMethodNotImplementedError
 
+from flask_rest_api.utils import deepupdate
+
 from flask_rest_api.compat import APISPEC_VERSION_MAJOR
 if APISPEC_VERSION_MAJOR == 0:
     from apispec import Path
@@ -83,9 +85,15 @@ class FlaskPlugin(BasePlugin):
             if path_parameters:
                 for operation in operations.values():
                     parameters = operation.setdefault('parameters', [])
-                    # Add path parameters to documentation
+                    # Add path parameters to documentation, updating if the name already exists
                     for path_p in path_parameters:
-                        parameters.append(path_p)
+                        updated = False
+                        for existing in parameters:
+                            if getattr(existing, "name", None) == path_p["name"]:
+                                existing = deepupdate(path_p, existing)
+                                updated = True
+                        if not updated:
+                            parameters.append(path_p)
 
         if APISPEC_VERSION_MAJOR == 0:
             return Path(path=path, operations=operations)
